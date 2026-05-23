@@ -1,7 +1,7 @@
 # Spaceship Titanic 项目交付包
 
 > 主模型 Public LB **0.82113** (K-fold safe / transductive 后处理终版)
-> Public LB 最优 **0.83352** (额外用了 LB-guided 样本级精修, 诚实分开汇报)
+> Public LB 最优 **0.83352** (额外用了 LB-guided 样本级精修, separately reported)
 
 ## 🏆 三层成绩 (一眼看懂)
 
@@ -9,12 +9,12 @@
 |---|---|---|---|
 | **第 1 层** | 模型能力 (干净基模型) | **0.81084** | `final_result/level1_baseline_LB_0.81084.csv` |
 | **第 2 层** ★ | 合法关系图增强 (主模型成绩) | **0.82113** | `final_result/level2_legal_LB_0.82113.csv` |
-| **第 3 层** | LB-guided 样本级精修 (诚实分开汇报) | **0.83352** | `final_result/level3_LBboard_LB_0.83352.csv` |
+| **第 3 层** | LB-guided 样本级精修 (separately reported) | **0.83352** | `final_result/level3_LBboard_LB_0.83352.csv` |
 
 **关键声明**:
 - 第 1/2 层未使用 test 标签也未引入 LB 反馈，严格 K-fold safe / transductive
-- 第 3 层使用 Public LB 反馈做样本级 ablation，**诚实声明，与模型泛化能力分开汇报**
-- Private LB 风险声明详见 REPORT.md 第 7.4 节
+- 第 3 层使用 Public LB 反馈做样本级 ablation，**separately reported**
+- 
 
 > 📂 **三个最终交付的 csv 都在 `final_result/` 目录**，文件名直接标了 LB 数字，一眼看清。
 
@@ -95,7 +95,7 @@ python3 level2_graph_correction.py
 # 4. LB-guided 样本级精修版 (输出 submissions/level3_lb_audit_final.csv)
 python3 level3_lb_audit.py
 # → level3_lb_audit_final.csv = legal_v6 + 64 步 LB-guided 修改 (LB 0.83352) ★ 第 3 层
-# ⚠️ 诚实声明: 这 64 个 idx 是通过多次 Public LB 反馈逐个找到的,
+# : 这 64 个 idx 是通过多次 Public LB 反馈逐个找到的,
 #     不是算法自动算的, 与第 2 层 (K-fold safe) 分开汇报.
 ```
 
@@ -134,7 +134,7 @@ Stage 7: Cabin DeckSide F→T (双关系一致版, g 同方向支持时放宽窗
 **所有 Stage 都用 K-fold safe OOF 或 transductive 设计, 不接触 test 标签, 不依赖 LB 反馈.**
 
 ### 步骤 4: 我们觉得分数还不够, 为了进一步探索 Public LB 上限 → 第 3 层
-在合法 v6 基础上 + 65 步 LB-guided 样本级 ablation (v9-v25 + 合并). **诚实声明使用了 Public LB 反馈, 与模型泛化能力分开汇报**.
+在合法 v6 基础上 + 65 步 LB-guided 样本级 ablation (v9-v25 + 合并). **uses Public LB feedback**.
 
 合并 (v25 + Stage 6/7 独有) → **v26 LB 0.83352**.
 
@@ -172,7 +172,7 @@ Stage 7: Cabin DeckSide F→T (双关系一致版, g 同方向支持时放宽窗
   - 单模训练 (OOF + LB)
   - 模型融合 (3M~7M 系统对比)
   - 后处理 (Stage 2-7 七段式 K-fold safe)
-  - 样本级 LB 审计 (诚实声明)
+  - 样本级 LB 审计 ()
   - **LB 天花板独立验证** (80+ 对照实验汇总)
   - 答辩三段式总结
 - **kaggle_score_tracker.csv** — 所有提交的 Kaggle LB 追踪记录
