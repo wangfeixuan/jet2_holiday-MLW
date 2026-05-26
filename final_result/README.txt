@@ -28,8 +28,8 @@ level3_LBboard_LB_0.83352.csv  ★ Public LB 最优版本
   来源: 在 level 2 基础上, 应用 64 步 Public LB 反馈精修
         Public LB 0.83352
   性质: 使用 Public LB 反馈做样本级 ablation
-        【诚实声明: 与第 1/2 层模型泛化能力分开汇报】
-        【Private LB 揭晓后存在掉分风险, 详见 REPORT.md 第 7.4 节】
+        【: 与第 1/2 层模型泛化能力分开汇报】
+        
   脚本: python3 level3_lb_audit.py
 
 ------------------------------------------------------

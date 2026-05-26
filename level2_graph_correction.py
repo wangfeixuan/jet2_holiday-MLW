@@ -512,13 +512,6 @@ def run_full_pipeline():
     print(f"   T→F flip: {n_s_tf}  (surname strong majority F)")
     # print(f"   总 flip: {n_s_ft + n_s_tf} ")
 
-    # ===== Output v7 (Stage 5 后, LB 0.81833) =====
-    out_v7 = f"{OUT_DIR}/level2_stage5_intermediate.csv"
-    pd.DataFrame({
-        "PassengerId": test_df["PassengerId"],
-        "Transported": after_stage5.astype(bool),
-    }).to_csv(out_v7, index=False)
-    # print(f"\nOutput (Stage 5 后): {out_v7}")
     print(f"   Predicted True ratio: {after_stage5.mean()*100:.1f}%")
     print(f"LB: 0.81833 (Project automated pipeline old baseline)")
 
@@ -537,7 +530,7 @@ def run_full_pipeline():
     print(f"   F->T flip: {n_ds7_ft}  (dual relation consistency + DS T-majority)")
 
     # ===== Output (Stage 7 后, legal v6, LB 0.82113) =====
-    out_path = f"{OUT_DIR}/level2_legal_final.csv"
+    out_path = f"{OUT_DIR}/level2.csv"
     pd.DataFrame({
         "PassengerId": test_df["PassengerId"],
         "Transported": final.astype(bool),

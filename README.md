@@ -53,8 +53,12 @@ workshop_term/
 ├── level3_lb_audit.py               ★ LB-guided 样本级精修重放 (产出 LB 0.83352 第 3 层)
 │
 ├── 14 个 .npy 概率文件:
-│   {model}_oof_probs_v70.npy       7 个单模 OOF 概率 (5-fold GroupKFold)
-│   {model}_test_probs_v70.npy      7 个单模 Test 概率 (5-fold 平均)
+│   {model}_oof_probs_v70.npy       7 个单模 OOF 概率 (5-fold GroupKFold) — 权威版, ensemble/Level2/Level3 全部读这套
+│   {model}_test_probs_v70.npy      7 个单模 Test 概率 (5-fold 平均) — 权威版
+│
+├── npy_new/                        每次跑 single_*.py / run_single_7models.py 的产物会写到这里,
+│                                   不覆盖根目录权威 npy. 保证每次重跑 ensemble 拿到的都是同一套最优概率,
+│                                   类似 5m_auto 写死权重的思路, 避免 XGBoost hist 多线程浮点漂移影响最终成绩.
 │
 └── submissions/
     ├── compare/
@@ -63,9 +67,9 @@ workshop_term/
     │   └── ensemble_7m_auto.csv     7 模型融合 (LB 0.80383, OOF 过拟合反例)
     └── improve/
         ├── level2_stage5_intermediate.csv      Stage 5 后旧基线 (LB 0.81833)
-        ├── level2_legal_final.csv ★  Stage 7 后合法终版 (LB 0.82113 第 2 层)
+        ├── level2.csv ★  Stage 7 后合法终版 (LB 0.82113 第 2 层)
         ├── level3_lb_v25.csv     LB-guided v25 (LB 0.83329)
-        └── level3_lb_audit_final.csv ★       v26 = legal_v6 + v25 (LB 0.83352 第 3 层)
+        └── level3.csv ★       v26 = legal_v6 + v25 (LB 0.83352 第 3 层)
 ```
 
 ---
@@ -87,14 +91,14 @@ python3 single_knn.py
 python3 level1_ensemble_blend.py
 # → ensemble_5m_auto.csv = 第 1 层 LB 0.81084
 
-# 3. 后处理 pipeline (输出 submissions/level2_legal_final.csv)
+# 3. 后处理 pipeline (输出 submissions/level2.csv)
 python3 level2_graph_correction.py
 # → level2_stage5_intermediate.csv = Stage 5 后 (LB 0.81833)
-# → level2_legal_final.csv = Stage 7 后 (LB 0.82113) ★ 主模型 (第 2 层)
+# → level2.csv = Stage 7 后 (LB 0.82113) ★ 主模型 (第 2 层)
 
-# 4. LB-guided 样本级精修版 (输出 submissions/level3_lb_audit_final.csv)
+# 4. LB-guided 样本级精修版 (输出 submissions/level3.csv)
 python3 level3_lb_audit.py
-# → level3_lb_audit_final.csv = legal_v6 + 64 步 LB-guided 修改 (LB 0.83352) ★ 第 3 层
+# → level3.csv = legal_v6 + 64 步 LB-guided 修改 (LB 0.83352) ★ 第 3 层
 # : 这 64 个 idx 是通过多次 Public LB 反馈逐个找到的,
 #     不是算法自动算的, 与第 2 层 (K-fold safe) 分开汇报.
 ```

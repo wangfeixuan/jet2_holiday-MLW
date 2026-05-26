@@ -2,3 +2,15 @@ __pycache__/
 *.pyc
 .DS_Store
 catboost_info/
+
+# 训练日志和临时副产物
+logs/
+*.log
+
+# 单次重跑的产物 (不污染权威 npy)
+npy_new/
+submissions/npy_new/
+
+# 老的 XGB 单模副产物 (现在已统一由 generate_report_figures.py 输出到 figures/)
+confusion_matrix.png
+feature_importance.png

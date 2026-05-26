@@ -1,222 +1,161 @@
-"""
-v7.0 一键Training 5 base models (LGB + CB + XGB + LR + KNN)
-=================================================
-所有模型 5 fold GroupKFold by PassengerId Group, 同一组超参 (来自 v6.7 实验).
-
-Output .npy 概率文件 (供 level1_ensemble_blend.py blend使用):
-  • lgbm_oof_probs_v70.npy  / lgbm_test_probs_v70.npy
-  • catboost_oof_probs_v70.npy / catboost_test_probs_v70.npy
-  • xgb_oof_probs_v70.npy   / xgb_test_probs_v70.npy
-  • lr_oof_probs_v70.npy    / lr_test_probs_v70.npy
-  • knn_oof_probs_v70.npy   / knn_test_probs_v70.npy
-
-不再Generatingblend提交; blend统一交给 level1_ensemble_blend.py.
-"""
+"""Run all seven single-model scripts and collect metrics, memory, and logs."""
 import os
+import sys
 import time
 import warnings
+import threading
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import GroupKFold
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score
-import lightgbm as lgb_mod
-from catboost import CatBoostClassifier, Pool
-import xgboost as xgb_mod
-
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, log_loss
 from data_preprocess import get_unified_processed_data, get_linear_model_data
+from single_lightgbm import run_lightgbm
+from single_catboost import run_catboost
+from single_xgboost import run_xgboost
+from single_lr import run_lr
+from single_knn import run_knn
+from single_extratrees import run_extratrees
+from single_histgb import run_histgb
 
 warnings.filterwarnings("ignore")
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
-N_SPLITS = 5
-THRESHOLD = 0.5
-
-LGB_PARAMS = {
-    'objective': 'binary', 'metric': 'binary_error', 'boosting_type': 'gbdt',
-    'verbose': -1, 'n_jobs': -1, 'bagging_freq': 5,
-    'learning_rate': 0.0882, 'num_leaves': 25, 'max_depth': 10,
-    'min_child_samples': 21, 'reg_alpha': 0.00226, 'reg_lambda': 0.10407,
-    'subsample': 0.85866, 'colsample_bytree': 0.81394, 'seed': 42,
-}
-CB_PARAMS = {
-    'iterations': 3000, 'eval_metric': 'Accuracy', 'early_stopping_rounds': 150,
-    'verbose': 0, 'bootstrap_type': 'Bernoulli',
-    'learning_rate': 0.08819, 'depth': 9, 'l2_leaf_reg': 2.19660,
-    'min_data_in_leaf': 100, 'random_strength': 0.27593, 'subsample': 0.94276,
-    'random_seed': 42,
-}
-XGB_PARAMS = {
-    'objective': 'binary:logistic', 'eval_metric': 'error',
-    'tree_method': 'hist', 'enable_categorical': True, 'max_cat_to_onehot': 10,
-    'learning_rate': 0.05, 'max_depth': 6, 'min_child_weight': 3,
-    'gamma': 0.1, 'reg_alpha': 0.1, 'reg_lambda': 1.0,
-    'subsample': 0.85, 'colsample_bytree': 0.85,
-    'n_jobs': -1, 'verbosity': 0, 'seed': 42,
-}
+os.makedirs('logs', exist_ok=True)
+LOG_PATH = f"logs/run_single_7models_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
 
-def _align_categoricals(X, X_test, cat_cols):
-    """让 train/test 共享同一套 category, 避免 test 出现新categories报错."""
-    X = X.copy(); X_test = X_test.copy()
-    for c in cat_cols:
-        X[c] = X[c].astype(str).astype('category')
-        X_test[c] = X_test[c].astype(str).astype('category')
-        all_cat = pd.api.types.union_categoricals([X[c], X_test[c]]).categories
-        X[c] = pd.Categorical(X[c], categories=all_cat)
-        X_test[c] = pd.Categorical(X_test[c], categories=all_cat)
-    return X, X_test
+class Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+            stream.flush()
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
 
 
-def train_lgb(X, y, X_test, groups, cat_cols):
-    X, X_test = _align_categoricals(X, X_test, cat_cols)
-    oof = np.zeros(len(X)); test = np.zeros(len(X_test))
-    for tr, va in GroupKFold(N_SPLITS).split(X, y, groups=groups):
-        d_tr = lgb_mod.Dataset(X.iloc[tr], y.iloc[tr], categorical_feature=cat_cols)
-        d_va = lgb_mod.Dataset(X.iloc[va], y.iloc[va], categorical_feature=cat_cols, reference=d_tr)
-        m = lgb_mod.train(LGB_PARAMS, d_tr, num_boost_round=3000, valid_sets=[d_va],
-                          callbacks=[lgb_mod.early_stopping(150, verbose=False),
-                                     lgb_mod.log_evaluation(0)])
-        oof[va] = m.predict(X.iloc[va], num_iteration=m.best_iteration)
-        test += m.predict(X_test, num_iteration=m.best_iteration) / N_SPLITS
-    return oof, test
+_log_file = open(LOG_PATH, 'w', encoding='utf-8')
+sys.stdout = Tee(sys.__stdout__, _log_file)
+sys.stderr = Tee(sys.__stderr__, _log_file)
+
+try:
+    import psutil
+    PROCESS = psutil.Process(os.getpid())
+except Exception:
+    PROCESS = None
 
 
-def train_cb(X, y, X_test, groups, cat_cols):
-    X = X.copy(); X_test = X_test.copy()
-    for c in cat_cols:
-        X[c] = X[c].astype(str); X_test[c] = X_test[c].astype(str)
-    oof = np.zeros(len(X)); test = np.zeros(len(X_test))
-    for tr, va in GroupKFold(N_SPLITS).split(X, y, groups=groups):
-        m = CatBoostClassifier(**CB_PARAMS)
-        m.fit(Pool(X.iloc[tr], y.iloc[tr], cat_features=cat_cols),
-              eval_set=Pool(X.iloc[va], y.iloc[va], cat_features=cat_cols),
-              use_best_model=True)
-        oof[va] = m.predict_proba(X.iloc[va])[:, 1]
-        test += m.predict_proba(X_test)[:, 1] / N_SPLITS
-    return oof, test
+def rss_mb():
+    if PROCESS is None:
+        return np.nan
+    return PROCESS.memory_info().rss / (1024 ** 2)
 
 
-def train_xgb(X, y, X_test, groups, cat_cols):
-    X, X_test = _align_categoricals(X, X_test, cat_cols)
-    oof = np.zeros(len(X)); test = np.zeros(len(X_test))
-    d_test = xgb_mod.DMatrix(X_test, enable_categorical=True)
-    for tr, va in GroupKFold(N_SPLITS).split(X, y, groups=groups):
-        d_tr = xgb_mod.DMatrix(X.iloc[tr], y.iloc[tr], enable_categorical=True)
-        d_va = xgb_mod.DMatrix(X.iloc[va], y.iloc[va], enable_categorical=True)
-        m = xgb_mod.train(XGB_PARAMS, d_tr, num_boost_round=3000,
-                          evals=[(d_va, 'va')], early_stopping_rounds=150, verbose_eval=False)
-        rng = (0, m.best_iteration + 1)
-        oof[va] = m.predict(d_va, iteration_range=rng)
-        test += m.predict(d_test, iteration_range=rng) / N_SPLITS
-    return oof, test
+def measure_run(fn, interval=0.02):
+    """跑模型并测时间/内存。返回 (elapsed, baseline, peak, delta, result)。
+    result 是单模函数的返回值 (oof, test, infer_time)。"""
+    baseline = rss_mb()
+    peak = baseline
+    running = True
+    result = {'value': None}
+
+    def sampler():
+        nonlocal peak
+        while running:
+            current = rss_mb()
+            if not np.isnan(current):
+                peak = max(peak, current)
+            time.sleep(interval)
+
+    thread = threading.Thread(target=sampler, daemon=True)
+    thread.start()
+    start = time.perf_counter()
+    try:
+        result['value'] = fn()
+    finally:
+        running = False
+        thread.join(timeout=1.0)
+    elapsed = time.perf_counter() - start
+    current = rss_mb()
+    if not np.isnan(current):
+        peak = max(peak, current)
+    delta = peak - baseline if not np.isnan(peak) and not np.isnan(baseline) else np.nan
+    return elapsed, baseline, peak, delta, result['value']
 
 
-def train_lr(X_lin, y, X_test_lin, groups):
-    oof = np.zeros(len(X_lin)); test = np.zeros(len(X_test_lin))
-    for tr, va in GroupKFold(N_SPLITS).split(X_lin, y, groups=groups):
-        m = LogisticRegression(C=0.1, penalty='l1', solver='liblinear',
-                                max_iter=2000, random_state=42)
-        m.fit(X_lin[tr], y.iloc[tr])
-        oof[va] = m.predict_proba(X_lin[va])[:, 1]
-        test += m.predict_proba(X_test_lin)[:, 1] / N_SPLITS
-    return oof, test
+def compute_metrics(y_true, prob):
+    pred = (prob > 0.5).astype(int)
+    return {
+        'Accuracy': accuracy_score(y_true, pred),
+        'Precision': precision_score(y_true, pred),
+        'Recall': recall_score(y_true, pred),
+        'F1': f1_score(y_true, pred),
+        'ROC_AUC': roc_auc_score(y_true, prob),
+        'LogLoss': log_loss(y_true, prob),
+    }
 
 
-def train_knn(X_lin, y, X_test_lin, groups):
-    oof = np.zeros(len(X_lin)); test = np.zeros(len(X_test_lin))
-    for tr, va in GroupKFold(N_SPLITS).split(X_lin, y, groups=groups):
-        m = KNeighborsClassifier(n_neighbors=50, weights='distance', n_jobs=-1)
-        m.fit(X_lin[tr], y.iloc[tr])
-        oof[va] = m.predict_proba(X_lin[va])[:, 1]
-        test += m.predict_proba(X_test_lin)[:, 1] / N_SPLITS
-    return oof, test
+print('=' * 72)
+print('v7.0 Running 7 single-model functions')
+print('=' * 72)
+print(f'Run log: {LOG_PATH}')
 
-
-def train_et(X_lin, y, X_test_lin, groups):
-    """ExtraTrees with 3-seed averaging for stability."""
-    from sklearn.ensemble import ExtraTreesClassifier
-    seeds = [42, 2024, 7]
-    y_arr = y.values if hasattr(y, 'values') else y
-    oof_avg = np.zeros(len(X_lin)); test_avg = np.zeros(len(X_test_lin))
-    for seed in seeds:
-        oof = np.zeros(len(X_lin)); test = np.zeros(len(X_test_lin))
-        for tr, va in GroupKFold(N_SPLITS).split(X_lin, y_arr, groups=groups):
-            m = ExtraTreesClassifier(n_estimators=500, max_features='sqrt',
-                                     min_samples_leaf=10, min_samples_split=20,
-                                     random_state=seed, n_jobs=-1)
-            m.fit(X_lin[tr], y_arr[tr])
-            oof[va] = m.predict_proba(X_lin[va])[:, 1]
-            test += m.predict_proba(X_test_lin)[:, 1] / N_SPLITS
-        oof_avg += oof / len(seeds)
-        test_avg += test / len(seeds)
-    return oof_avg, test_avg
-
-
-def train_hgb(X, y, X_test, groups, cat_cols):
-    """HistGradientBoosting with ordinal-encoded cats, 3-seed averaging."""
-    from sklearn.ensemble import HistGradientBoostingClassifier
-    from sklearn.preprocessing import OrdinalEncoder
-    X_enc = X.copy(); X_test_enc = X_test.copy()
-    enc = OrdinalEncoder(handle_unknown='use_encoded_value',
-                         unknown_value=-1, encoded_missing_value=-1)
-    X_cat = X[cat_cols].astype(str).fillna('__MISSING__')
-    X_test_cat = X_test[cat_cols].astype(str).fillna('__MISSING__')
-    enc.fit(pd.concat([X_cat, X_test_cat], axis=0))
-    X_enc[cat_cols] = enc.transform(X_cat)
-    X_test_enc[cat_cols] = enc.transform(X_test_cat)
-    X_enc = X_enc.astype(float).values
-    X_test_enc = X_test_enc.astype(float).values
-    y_arr = y.values if hasattr(y, 'values') else y
-    seeds = [42, 2024, 3407]
-    oof_avg = np.zeros(len(X_enc)); test_avg = np.zeros(len(X_test_enc))
-    for seed in seeds:
-        oof = np.zeros(len(X_enc)); test = np.zeros(len(X_test_enc))
-        for tr, va in GroupKFold(N_SPLITS).split(X_enc, y_arr, groups=groups):
-            m = HistGradientBoostingClassifier(
-                max_iter=1000, learning_rate=0.05, max_depth=8,
-                min_samples_leaf=20, l2_regularization=1.0,
-                early_stopping=True, validation_fraction=0.15,
-                n_iter_no_change=50, random_state=seed)
-            m.fit(X_enc[tr], y_arr[tr])
-            oof[va] = m.predict_proba(X_enc[va])[:, 1]
-            test += m.predict_proba(X_test_enc)[:, 1] / N_SPLITS
-        oof_avg += oof / len(seeds)
-        test_avg += test / len(seeds)
-    return oof_avg, test_avg
-
-
-print("=" * 60)
-print("v7.0 Training 7 base models (LGB + CB + XGB + LR + KNN + ET + HGB)")
-print("=" * 60)
-
-t_all = time.time()
 X, y, X_test, cat_cols = get_unified_processed_data()
 X_lin, _, X_test_lin, _ = get_linear_model_data()
 groups = pd.read_csv('train.csv')['PassengerId'].apply(lambda x: x.split('_')[0]).values
-
-print(f"\nData: tree models X={X.shape}, linear X_lin={X_lin.shape}, categories={len(cat_cols)}")
+y_arr = y.values if hasattr(y, 'values') else y
 
 JOBS = [
-    ("LightGBM",   lambda: train_lgb(X, y, X_test, groups, cat_cols), 'lgbm'),
-    ("CatBoost",   lambda: train_cb(X, y, X_test, groups, cat_cols),  'catboost'),
-    ("XGBoost",    lambda: train_xgb(X, y, X_test, groups, cat_cols), 'xgb'),
-    ("LogReg",     lambda: train_lr(X_lin, y, X_test_lin, groups),    'lr'),
-    ("KNN",        lambda: train_knn(X_lin, y, X_test_lin, groups),   'knn'),
-    ("ExtraTrees", lambda: train_et(X_lin, y, X_test_lin, groups),    'extratrees'),
-    ("HistGB",     lambda: train_hgb(X, y, X_test, groups, cat_cols), 'histgb'),
+    ('LightGBM', lambda: run_lightgbm(X, y, X_test, groups, cat_cols), 'lgbm'),
+    ('CatBoost', lambda: run_catboost(X, y, X_test, groups, cat_cols), 'catboost'),
+    ('XGBoost', lambda: run_xgboost(X, y, X_test, groups, cat_cols), 'xgb'),
+    ('LogReg', lambda: run_lr(X_lin, y, X_test_lin, groups), 'lr'),
+    ('KNN', lambda: run_knn(X_lin, y, X_test_lin, groups), 'knn'),
+    ('ExtraTrees', lambda: run_extratrees(X_lin, y, X_test_lin, groups), 'extratrees'),
+    ('HistGB', lambda: run_histgb(X, y, X_test, groups, cat_cols), 'histgb'),
 ]
 
-for name, fn, prefix in JOBS:
-    t = time.time()
-    print(f"   {name} ...", end='', flush=True)
-    oof, test = fn()
-    np.save(f'{prefix}_oof_probs_v70.npy', oof)
-    np.save(f'{prefix}_test_probs_v70.npy', test)
-    acc = accuracy_score(y, (oof > THRESHOLD).astype(int))
-    print(f" OOF={acc:.5f}  ({time.time()-t:.1f}s)  -> {prefix}_*_v70.npy")
+print(f"Data: tree X={X.shape}, linear X={X_lin.shape}, categoricals={len(cat_cols)}")
 
-print(f"\nTotal elapsed: {(time.time()-t_all)/60:.1f} min")
-print("7 base model probabilities saved. Now run level1_ensemble_blend.py for ensemble comparison.")
-print("=" * 60)
+records = []
+for model_name, fn, prefix in JOBS:
+    print('\n' + '-' * 72)
+    print(f'[{model_name}] training ...')
+    train_time, mem_before, mem_peak, mem_delta, result = measure_run(fn)
+    # result = (oof, test, infer_time) — 直接用本次训练的 OOF, 而不是磁盘上的权威 npy
+    oof, _test_probs, infer_time = result
+    metrics = compute_metrics(y_arr, oof)
+    records.append({
+        'Model': model_name,
+        'Prefix': prefix,
+        **metrics,
+        'TrainTime_sec': round(train_time, 2),
+        'TrainTime_min': round(train_time / 60.0, 3),
+        'InferTime_sec': round(infer_time, 4),
+        'RSS_Before_MB': round(mem_before, 2) if not np.isnan(mem_before) else np.nan,
+        'PeakRSS_MB': round(mem_peak, 2) if not np.isnan(mem_peak) else np.nan,
+        'PeakRSS_Delta_MB': round(mem_delta, 2) if not np.isnan(mem_delta) else np.nan,
+    })
+    print(f"[Summary] Acc={metrics['Accuracy']:.5f}, F1={metrics['F1']:.5f}, AUC={metrics['ROC_AUC']:.5f}")
+    print(f"[Summary] Train={train_time:.1f}s, Infer={infer_time*1000:.2f}ms, PeakRSS={mem_peak:.1f}MB")
+
+columns = [
+    'Model', 'Prefix', 'Accuracy', 'Precision', 'Recall', 'F1', 'ROC_AUC', 'LogLoss',
+    'TrainTime_sec', 'TrainTime_min', 'InferTime_sec', 'RSS_Before_MB', 'PeakRSS_MB', 'PeakRSS_Delta_MB'
+]
+metrics_df = pd.DataFrame(records)[columns]
+metrics_df.to_csv('evaluation_metrics.csv', index=False)
+print('\n' + '=' * 72)
+print('Aggregated metrics (sorted by Accuracy desc)')
+print('=' * 72)
+print(metrics_df.sort_values('Accuracy', ascending=False).drop(columns=['Prefix']).to_string(index=False))
+print('\nMetrics table saved: evaluation_metrics.csv')
+print(f'Run log saved: {LOG_PATH}')
+print('Single-model probs saved to: npy_new/  (this run)')
+print('Authoritative probs at root *_v70.npy are unchanged (used by ensemble/Level2/Level3 for reproducibility).')
+print('Now run level1_ensemble_blend.py for ensemble comparison.')
+print('=' * 72)

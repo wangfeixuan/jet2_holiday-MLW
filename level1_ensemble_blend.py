@@ -25,6 +25,13 @@ OUT_DIR = "submissions"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 THRESHOLD = 0.5
+REPORT_5M_FIXED_WEIGHTS = {
+    "LGB": 0.05,
+    "CB": 0.75,
+    "XGB": 0.20,
+    "LR": 0.00,
+    "KNN": 0.00,
+}
 
 # ---------- 1. Loading概率 ----------
 PROB_FILES = {
@@ -113,7 +120,13 @@ for tag, names in SCHEDULE:
 
     # auto
     t0 = time.time()
-    best_w, best_acc, n_tried = grid_search(names, STEP_BY_N[len(names)])
+    if tag == "5m":
+        best_w = np.array([REPORT_5M_FIXED_WEIGHTS[m] for m in names], dtype=float)
+        fixed_oof = sum(w * oofs[m] for w, m in zip(best_w, names))
+        best_acc = accuracy_score(y, (fixed_oof > THRESHOLD).astype(int))
+        n_tried = 1
+    else:
+        best_w, best_acc, n_tried = grid_search(names, STEP_BY_N[len(names)])
     auto_test = sum(w * tests[m] for w, m in zip(best_w, names))
     auto_path = f"{OUT_DIR}/ensemble_{tag}_auto.csv"
     auto_pred = save_submission(auto_path, auto_test)
@@ -122,7 +135,10 @@ for tag, names in SCHEDULE:
     print(f"\n[{tag}] {' + '.join(names)}")
     print(f"   avg   OOF={avg_acc:.5f}  ({avg_pred.mean()*100:.1f}% True)  → {avg_path}")
     print(f"   auto  OOF={best_acc:.5f}  ({auto_pred.mean()*100:.1f}% True)  → {auto_path}")
-    print(f"      searched {n_tried} combinations, step {STEP_BY_N[len(names)]}, {time.time()-t0:.1f}s")
+    if tag == "5m":
+        print(f"      fixed report weights, {time.time()-t0:.1f}s")
+    else:
+        print(f"      searched {n_tried} combinations, step {STEP_BY_N[len(names)]}, {time.time()-t0:.1f}s")
     print(f"      weights: {weight_str}")
 
     results.append({"N": len(names), "tag": tag, "avg": avg_acc, "auto": best_acc})

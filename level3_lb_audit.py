@@ -2,7 +2,7 @@
 
 逻辑:
   in legal_v6 (LB 0.82113) 基础上, 应用 v9-v25 共 65 步 LB-guided 修改
-  → Output level3_lb_audit_final.csv (LB 0.83352)
+  → Output level3.csv (LB 0.83352)
 
 Honesty disclaimer:
   这 64 具体 idx 是通过多次 Public LB feedback to do单点 ablation 找到的,
@@ -20,7 +20,7 @@ import numpy as np
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # Loading legal_v6 (Stage 7 后, K-fold safe 终版)
-legal_v6 = pd.read_csv("submissions/level2_legal_final.csv")
+legal_v6 = pd.read_csv("submissions/level2.csv")
 pred = legal_v6["Transported"].astype(int).values
 
 # v25 vs v7 (Stage 5 旧基线) 的 64  LB-guided 修改
@@ -66,7 +66,7 @@ out = pd.DataFrame({
     "PassengerId": legal_v6["PassengerId"],
     "Transported": pred.astype(bool),
 })
-out_path = "submissions/level3_lb_audit_final.csv"
+out_path = "submissions/level3.csv"
 out.to_csv(out_path, index=False)
 
 print(f"\nOutput: {out_path}")
