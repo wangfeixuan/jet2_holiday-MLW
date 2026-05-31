@@ -1,18 +1,18 @@
 """
-Spaceship Titanic - multi-scaleblendcomparison (3M ~ 7M, v7.0)
+Spaceship Titanic - multi-scale blend comparison (3M ~ 7M, v7.0)
 =====================================================
-基于有的 v70 Single-model OOF/Test 概率, systematiccomparison 3/4/5/6/7 模型blend.
+Based on available v70 Single-model OOF/Test probabilities, systematically compare blends of 3/4/5/6/7 models.
 
-add order (from core to edge, each adding one newnew diversity):
+Add order (from core to edge, each adding one new diversity):
   3M = LGB + CB + XGB
   4M = 3M + LR
   5M = 4M + KNN
   6M = 5M + ExtraTrees
   7M = 6M + HistGB
 
-For each N Outputtwo submissions:
+For each N output two submissions:
   • ensemble_<N>m_avg.csv   simple equal-weight average, anti-overfit
-  • ensemble_<N>m_auto.csv  gridoptimalweights, OOF 高
+  • ensemble_<N>m_auto.csv  grid optimal weights, OOF high
 """
 import os
 import time
@@ -33,7 +33,7 @@ REPORT_5M_FIXED_WEIGHTS = {
     "KNN": 0.00,
 }
 
-# ---------- 1. Loading概率 ----------
+# ---------- 1. Loading probabilities ----------
 PROB_FILES = {
     "LGB": ("lgbm_oof_probs_v70.npy",       "lgbm_test_probs_v70.npy"),
     "CB":  ("catboost_oof_probs_v70.npy",   "catboost_test_probs_v70.npy"),
@@ -57,20 +57,20 @@ for name, oof in oofs.items():
     print(f"   {name:5s}: {accuracy_score(y, (oof > THRESHOLD).astype(int)):.5f}")
 
 
-# ---------- 2. gridsearched (用整数划分, itertools 实现) ----------
+# ---------- 2. gridsearched (discrete partition, implemented by itertools) ----------
 def grid_search(model_names, step):
-    """枚举所有 sum(w)=1 的离散划分, 返回 (best_weights, best_acc, n_tried)."""
+    """Enumerate all discrete partitions of sum(w)=1, return (best_weights, best_acc, n_tried)."""
     n = len(model_names)
     n_step = int(round(1.0 / step))
     oof_stack = np.stack([oofs[m] for m in model_names])  # (n, n_samples)
 
-    # 把 n_step 份分到 n 桶: 用 stars-and-bars 枚举
-    # 等价于in n_step + n - 1 位置选 n - 1 分隔点
+    # Distribute n_step parts into n bins: enumerate using stars-and-bars
+    # Equivalent to choosing n-1 separators in n_step + n - 1 positions
     from itertools import combinations
     best_acc, best_w = 0.0, None
     n_tried = 0
     for sep in combinations(range(n_step + n - 1), n - 1):
-        # sep 转成每桶的份数
+        # Convert separators to counts per bin
         prev, parts = -1, []
         for s in sep:
             parts.append(s - prev - 1); prev = s
@@ -84,7 +84,7 @@ def grid_search(model_names, step):
     return best_w, best_acc, n_tried
 
 
-# ---------- 3. 逐 N blend ----------
+# ---------- 3. Blend for each N ----------
 SCHEDULE = [
     ("3m", ["LGB", "CB", "XGB"]),
     ("4m", ["LGB", "CB", "XGB", "LR"]),
@@ -144,7 +144,7 @@ for tag, names in SCHEDULE:
     results.append({"N": len(names), "tag": tag, "avg": avg_acc, "auto": best_acc})
 
 
-# ---------- 4. 汇总 ----------
+# ---------- 4. Summary ----------
 print("\n" + "=" * 72)
 print("Summary comparison (5m as baseline)")
 print("=" * 72)
