@@ -126,7 +126,7 @@ for model_name, fn, prefix in JOBS:
     print('\n' + '-' * 72)
     print(f'[{model_name}] training ...')
     train_time, mem_before, mem_peak, mem_delta, result = measure_run(fn)
-    # result = (oof, test, infer_time) — 直接用本次训练的 OOF, 而不是磁盘上的权威 npy
+    # result = (oof, test, infer_time) — 直接用本次训练的 OOF, 而不是磁盘上的authoritative npy
     oof, _test_probs, infer_time = result
     metrics = compute_metrics(y_arr, oof)
     records.append({

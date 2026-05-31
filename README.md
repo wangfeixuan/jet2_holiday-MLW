@@ -55,7 +55,7 @@ workshop_term/
 ├── run_single_7models.py
 ├── level1_ensemble_blend.py
 ├── level2_graph_correction.py
-├── level3_lb_audit.py
+├── level3_relation_consensus_paper_score_aligned(2).py
 │
 ├── Probability files:
 │   ├── {model}_oof_probs_v70.npy
@@ -136,10 +136,10 @@ This is the main generalizable model reported in the project.
 
 ---
 
-## Step 4: Leaderboard-Guided Audit Layer (Level 3)
+## Step 4: Relation-Consensus Correction Layer (Level 3)
 
 ```bash
-python3 level3_lb_audit.py
+python3 level3_relation_consensus_paper_score_aligned(2).py
 ```
 
 Output:
@@ -154,7 +154,7 @@ Final Public LB:
 0.83352
 ```
 
-This version incorporates leaderboard-guided sample-level refinements and is reported separately from the main pipeline.
+This version implements relation-consensus based corrections and is reported separately from the main pipeline.
 
 ---
 
@@ -243,11 +243,18 @@ This constitutes the main contribution of the project.
 
 ---
 
-## Stage 4: Leaderboard-Guided Exploration (Level 3)
+## Stage 4: Relation-Consensus Correction (Level 3)
 
-After obtaining the legal Level 2 result, we further explored the upper bound of public leaderboard performance.
+After obtaining the legal Level 2 result, we further explored relation-consensus based corrections.
 
-Level 3 adds leaderboard-guided sample-level refinements based on extensive ablation studies.
+Level 3 implements rule-based corrections focusing on patterns that can be explained in the final methodology, including:
+- Earth/destination/deck structures with low True rates
+- Group/surname relation pressure and homogeneous Earth cohorts
+- Cryo-zero false-context anomalies
+- Spending-channel compositions beyond RoomService
+- Model-disagreement and vote-pattern false-context pockets
+- Missing/UNK destination and cabin-region pockets
+- Strict non-Earth controls
 
 Result:
 
@@ -255,7 +262,7 @@ Result:
 Public LB = 0.83352
 ```
 
-Since this stage uses Public Leaderboard feedback, it is reported separately and is not considered part of the main generalizable solution.
+This stage focuses on explainable relation patterns and is reported separately from the main pipeline.
 
 ---
 

@@ -10,9 +10,9 @@ THRESHOLD = 0.5
 VERSION = 'v70'
 
 def _save(prefix, submission_name, oof, test):
-    """保存到 npy_new/ 不再覆盖根目录的权威 npy。
-    根目录 *_v70.npy 是已验证的最优概率, ensemble/Level2/Level3 始终读这套, 类似 5m 写死权重。
-    每次重跑由于 XGBoost hist 多线程浮点漂移会有 ~0.0002 级别差, 所以单模产物隔离到 npy_new/。"""
+    """Save to npy_new/ to avoid overwriting the authoritative npy files in the root directory.
+    The *_v70.npy files in the root directory are the verified optimal probabilities. ensemble/Level2/Level3 always read from this set, similar to the fixed 5m weights.
+    each rerun由于 XGBoost hist multi-threaded floating-point drift会有 ~0.0002 level differences, 所以single-model outputsisolated to npy_new/。"""
     os.makedirs('npy_new', exist_ok=True)
     os.makedirs('submissions/npy_new', exist_ok=True)
     np.save(f'npy_new/{prefix}_oof_probs_{VERSION}.npy', oof)
