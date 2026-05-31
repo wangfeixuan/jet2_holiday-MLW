@@ -1,39 +1,3 @@
-"""
-Spaceship Titanic - Data Preprocessing v7.0 (反过拟合版)
-===========================================================
-v7.0 相比 v6.6 的改动：
-
-【背景诊断】
-  V66 OOF=0.8163 但 LB=0.8088 (CV 比 LB 高 0.7%) → 过拟合 CV
-  别人 (Surendiran) CV=0.808 但 LB=0.8190 → 简洁泛化好
-  ⇒ 我们 LB 输 1.024%, 主要原因是 "过度工程 + 派生特征引入分布偏移"
-
-【V70 核心思路：奥卡姆剃刀】
-  ✂️ 砍掉 24 边际/共线/分布偏移的派生特征
-  保留全部领域规则 (CryoSleep 一致性, 4 layer填充, Deck→HomePlanet 等)
-  保留 IterativeImputer Age (但仅这一项 train-only fit)
-  🛡️ 全部 train-only fit, 不引入新的 transductive 派生量
-  特征数 62 → 38
-
-【保留的领域规则 (不增加特征数, 只减少缺失)】
-  • CryoSleep 一致性: 消费>0 → False; CryoSleep=True → 消费=0
-  • 4 layer填充: Group → Surname → Deck → 全局 train mode
-  • Deck → HomePlanet 反推 (train-only mapping)
-  • VIP=True → Europa (train-only mode)
-  • HomePlanet → Deck 默认映射
-
-【砍掉的 24 特征 + 理由 (参见 README/讨论)】
-  Family_* (2): test 多新 Surname, 分布偏移
-  Cabin_Group_Size / Cabin_Num_Pct: vs Cabin_Was_Missing/Region 共线
-  Group_* 派生 (7): Spending_Max, Age_Std, PP_Range, PP_Max, Total_Spending,
-                    Has_Child, All_Cryo  — vs核心 Group 量共线
-  combinationscategories (2): HomePlanet_Destination, HomePlanet_Deck — 高基数 one-hot 爆炸
-  Only_Luxury / Only_Basic / Spending_Concentration: 共线
-  Spending_to_Group_Ratio / Personal_Group_Spend_Ratio: 分布偏移
-  Luxury_Ratio / Basic_Ratio / RoomService_Ratio /
-  FoodCourt_Ratio / ShoppingMall_Ratio: vs原始 *_Spending 强相关
-  Is_Teen: vs Age_Group 重复
-"""
 
 import os
 import pandas as pd
