@@ -1,3 +1,39 @@
+"""
+Spaceship Titanic - Data Preprocessing v7.0 (Anti-overfitting Edition)
+======================================================================
+Changes in v7.0 compared to v6.6:
+
+【Background Diagnosis】
+  V66 OOF=0.8163 but LB=0.8088 (CV is 0.7% higher than LB) → Overfitting CV
+  Others (Surendiran) CV=0.808 but LB=0.8190 → Simpler model generalizes better
+  ⇒ Our LB drops by 1.024%, mainly due to “over-engineering + derived features causing distribution shift”
+
+【v7.0 Key Idea: Occam’s Razor】
+  ✂️ Remove 24 marginal/collinear/distribution-shifting derived features
+  Keep all domain rules (CryoSleep consistency, 4-layer imputation, Deck→HomePlanet, etc.)
+  Keep IterativeImputer Age (but only this is train-only fit)
+  🛡️ All imputation is train-only fit, no new transductive derived features
+  Feature count reduced: 62 → 38
+
+【Retained domain rules (reduce missing, don’t increase feature count)】
+  • CryoSleep consistency: Spending>0 → False; CryoSleep=True → Spending=0
+  • 4-layer imputation: Group → Surname → Deck → global train mode
+  • Deck → HomePlanet inference (train-only mapping)
+  • VIP=True → Europa (train-only mode)
+  • HomePlanet → Deck default mapping
+
+【Removed 24 features + reasons (see README/discussion)】
+  Family_* (2): test set has many new surnames, causes distribution shift
+  Cabin_Group_Size / Cabin_Num_Pct: Collinear with Cabin_Was_Missing/Region
+  Group_* derived (7): Spending_Max, Age_Std, PP_Range, PP_Max, Total_Spending,
+                    Has_Child, All_Cryo  — Collinear with core group features
+  combinationscategories (2): HomePlanet_Destination, HomePlanet_Deck — High-cardinality one-hot explosion
+  Only_Luxury / Only_Basic / Spending_Concentration: Collinear
+  Spending_to_Group_Ratio / Personal_Group_Spend_Ratio: Distribution shift
+  Luxury_Ratio / Basic_Ratio / RoomService_Ratio /
+  FoodCourt_Ratio / ShoppingMall_Ratio: Strongly correlated with original *_Spending
+  Is_Teen: Duplicate of Age_Group
+"""
 
 import os
 import pandas as pd
@@ -17,27 +53,27 @@ def get_unified_processed_data():
     df = pd.concat([train_df, test_df], axis=0).reset_index(drop=True)
     train_mask = df['Transported'].notna()
 
-    # ========== 1. PassengerId 拆分 ==========
+    # ========== 1. Split PassengerId ==========
     df['Group'] = df['PassengerId'].apply(lambda x: x.split('_')[0])
     df['PP'] = df['PassengerId'].apply(lambda x: int(x.split('_')[1]))
     df['Group_Size'] = df.groupby('Group')['PassengerId'].transform('count')
     df['Is_Alone'] = (df['Group_Size'] == 1).astype(int)
 
-    # ========== 2. Cabin 拆分 ==========
+    # ========== 2. Split Cabin ==========
     df[['Deck', 'Cabin_Num', 'Side']] = df['Cabin'].str.split('/', expand=True)
     df['Cabin_Num'] = pd.to_numeric(df['Cabin_Num'], errors='coerce')
 
-    # ========== 3. Name Processing (只用于填充, 不留 Family_* 派生) ==========
+    # ========== 3. Name Processing (used only for imputation, no Family_* features created) ==========
     df['Surname'] = df['Name'].str.split(' ').str[-1]
     df['Family_Size'] = df.groupby('Surname')['PassengerId'].transform('count')
     df['Family_Size'] = df['Family_Size'].fillna(1)
 
-    # ========== 4. 消费特征工程 ==========
+    # ========== 4. Spending Feature Engineering ==========
     exp_cols = ['RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
     luxury_cols = ['RoomService', 'Spa', 'VRDeck']
     basic_cols = ['FoodCourt', 'ShoppingMall']
 
-    # CryoSleep 一致性修正 (强领域规则, 保留)
+    # CryoSleep consistency correction (key domain rule, retained)
     temp_total_spend = df[exp_cols].sum(axis=1, skipna=True)
     df.loc[temp_total_spend > 0, 'CryoSleep'] = False
     df.loc[df['CryoSleep'] == True, exp_cols] = 0
@@ -50,20 +86,20 @@ def get_unified_processed_data():
     df['No_Spend'] = (df['Total_Spending'] == 0).astype(int)
     df['Spending_Diversity'] = (df[exp_cols] > 0).sum(axis=1)
 
-    # 仅保留两最具判别力的 Ratio (奢侈消费判定 Transported 关键信号)
+    # Keep only 2 most discriminative ratios (luxury spending is key to Transported prediction)
     df['Spa_Ratio_raw'] = df['Spa'] / (df['Total_Spending'] + 1)
     df['VRDeck_Ratio_raw'] = df['VRDeck'] / (df['Total_Spending'] + 1)
 
-    # log1p 变换
+    # log1p transform
     for col in exp_cols + ['Total_Spending', 'Luxury_Spending', 'Basic_Spending']:
         df[col] = np.log1p(df[col])
-    # Ratio 不再 log (经in [0, 1])
+    # Ratios are not log-transformed (in [0, 1])
     df['Spa_Ratio'] = df['Spa_Ratio_raw']
     df['VRDeck_Ratio'] = df['VRDeck_Ratio_raw']
     df = df.drop(columns=['Spa_Ratio_raw', 'VRDeck_Ratio_raw'])
 
     # ==========================================================
-    # 5. 缺失值填充 - 保留 V66 全部 4 layer兜底 + 领域规则
+    # 5. Missing value imputation - keep all v66 4-layer backfill + domain rules
     # ==========================================================
 
     # ----- HomePlanet & Destination -----
@@ -73,7 +109,7 @@ def get_unified_processed_data():
         df[col] = df.groupby('Surname')[col].transform(
             lambda x: x.fillna(x.mode()[0] if not x.mode().empty else np.nan))
 
-    # Deck → HomePlanet 反推 (train-only mapping)
+    # Deck → HomePlanet inference (train-only mapping)
     if df['HomePlanet'].isna().any():
         deck_to_planet = df[train_mask].groupby('Deck')['HomePlanet'].agg(
             lambda x: x.mode()[0] if not x.mode().empty else np.nan
@@ -87,7 +123,7 @@ def get_unified_processed_data():
         mask = df['HomePlanet'].isna() & (df['VIP'] == True)
         df.loc[mask, 'HomePlanet'] = vip_planet_mode[0]
 
-    # 全局兜底 (train-only mode)
+    # Global fallback (train-only mode)
     for col in ['HomePlanet', 'Destination']:
         train_mode = df.loc[train_mask, col].mode()[0]
         df[col] = df[col].fillna(train_mode)
@@ -120,7 +156,7 @@ def get_unified_processed_data():
     df['Cabin_Num'] = df['Cabin_Num'].fillna(fill_values)
     df['Cabin_Num'] = df['Cabin_Num'].round().astype(int)
 
-    # ----- Age: IterativeImputer (严格 train-only fit) -----
+    # ----- Age: IterativeImputer (strict train-only fit) -----
     imp_cols = ['Age', 'Total_Spending', 'RoomService', 'Spa', 'VRDeck',
                 'CryoSleep', 'Is_Alone', 'Family_Size']
     temp_df = df[imp_cols + ['Deck', 'HomePlanet']].copy()
@@ -133,7 +169,7 @@ def get_unified_processed_data():
     imputed_values = imputer.transform(temp_df)
     df['Age'] = np.clip(imputed_values[:, 0], 0, 100)
 
-    # CryoSleep 补 NaN (从 IterativeImputer 拿, 仅填原本缺失位置)
+    # CryoSleep imputation (use value from IterativeImputer, fill only original missing positions)
     cryo_imputed = imputed_values[:, 5]
     cryo_mask = df['CryoSleep'].isna()
     df.loc[cryo_mask, 'CryoSleep'] = (cryo_imputed[cryo_mask.values] > 0.5)
@@ -144,7 +180,7 @@ def get_unified_processed_data():
         labels=['Child', 'Teen', 'YoungAdult', 'Adult', 'MiddleAge', 'Senior']
     ).astype(str)
 
-    # ========== 6. 船舱衍生 (train-only 分箱) ==========
+    # ========== 6. Cabin derived (train-only binning) ==========
     train_cabin_nums = df.loc[train_mask, 'Cabin_Num']
     _, bin_edges = pd.qcut(train_cabin_nums, q=6, retbins=True, duplicates='drop')
     bin_edges[0], bin_edges[-1] = -np.inf, np.inf
@@ -153,51 +189,51 @@ def get_unified_processed_data():
     df['Cabin_Even'] = (df['Cabin_Num'] % 2 == 0).astype(int)
     df['Cabin_Num_Bucket'] = (df['Cabin_Num'] // 100).astype(int)
 
-    # ========== 7. CryoSleep / VIP 兜底 ==========
+    # ========== 7. CryoSleep / VIP fallback ==========
     train_cryo_mode = df.loc[train_mask, 'CryoSleep'].mode()[0]
     df['CryoSleep'] = df['CryoSleep'].fillna(train_cryo_mode).astype(int)
     df['VIP'] = df['VIP'].fillna(False).astype(int)
 
-    # ========== 8. Group 内统计 (大幅精简: 只保留 4 核心) ==========
-    # 砍掉: Spending_Max, Age_Std, PP_Range, PP_Max, Total_Spending,
-    #       Has_Child, All_Cryo (vs下方共线或边际)
+    # ========== 8. Group statistics (highly simplified, keep only 4 core features) ==========
+    # Removed: Spending_Max, Age_Std, PP_Range, PP_Max, Total_Spending,
+    #          Has_Child, All_Cryo (collinear or marginal compared to below)
     df['Group_Spending_Mean'] = df.groupby('Group')['Total_Spending'].transform('mean')
     df['Group_Age_Mean'] = df.groupby('Group')['Age'].transform('mean')
     df['Group_Any_Cryo'] = df.groupby('Group')['CryoSleep'].transform('max')
     df['Group_Cryo_Ratio'] = df.groupby('Group')['CryoSleep'].transform('mean')
     df['Group_Has_VIP'] = df.groupby('Group')['VIP'].transform('max')
 
-    # ========== 9. combinations特征 (砍掉两高基数, 只保留 Deck_Side) ==========
+    # ========== 9. Combinations features (remove two high-cardinality, keep only Deck_Side) ==========
     df['Deck_Side'] = df['Deck'].astype(str) + '_' + df['Side'].astype(str)
 
-    # ========== 10. 强逻辑特征 (保留两核心) ==========
+    # ========== 10. Strong logical features (keep 2 core) ==========
     df['Child_Alone'] = ((df['Is_Child'] == 1) & (df['Is_Alone'] == 1)).astype(int)
     df['VIP_No_Spend'] = ((df['VIP'] == 1) & (df['No_Spend'] == 1)).astype(int)
 
-    # ========== 11. 特征选择 (38 ) ==========
+    # ========== 11. Feature selection (38) ==========
     features = [
-        # 原始categories (5)
+        # Original categories (5)
         'HomePlanet', 'CryoSleep', 'Destination', 'VIP', 'Age',
-        # 消费 (5 原始 + 3 聚合 = 8, log1p 后)
+        # Spending (5 original + 3 aggregate = 8, after log1p)
         'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck',
         'Total_Spending', 'Luxury_Spending', 'Basic_Spending',
-        # 消费派生 (4)
+        # Spending derived (4)
         'No_Spend', 'Spending_Diversity', 'Spa_Ratio', 'VRDeck_Ratio',
-        # Group (3 基本 + 5 统计 = 8)
+        # Group (3 base + 5 stats = 8)
         'Group_Size', 'Is_Alone', 'PP',
         'Group_Spending_Mean', 'Group_Age_Mean',
         'Group_Any_Cryo', 'Group_Cryo_Ratio', 'Group_Has_VIP',
-        # Family (1 基本, 砍掉 Family_*_Mean)
+        # Family (1 base, removed Family_*_Mean)
         'Family_Size',
-        # Cabin (3 基本 + 4 衍生 = 7)
+        # Cabin (3 base + 4 derived = 7)
         'Deck', 'Cabin_Num', 'Side', 'Deck_Side',
         'Cabin_Region', 'Cabin_Even', 'Cabin_Num_Bucket', 'Cabin_Was_Missing',
-        # Age 派生 (2, 砍 Is_Teen)
+        # Age derived (2, removed Is_Teen)
         'Is_Child', 'Age_Group',
-        # 强逻辑 (2)
+        # Strong logic (2)
         'Child_Alone', 'VIP_No_Spend',
     ]
-    assert len(features) == 38, f"features 应该是 38 , 实际 {len(features)}"
+    assert len(features) == 38, f"features should be 38, but got {len(features)}"
 
     cat_cols = [
         'HomePlanet', 'CryoSleep', 'Destination', 'VIP',
@@ -217,12 +253,12 @@ def get_unified_processed_data():
 
 
 def get_linear_model_data():
-    """linear模型 (LR / KNN) 输入: one-hot + RobustScaler.
+    """Linear model (LR / KNN) input: one-hot + RobustScaler.
 
-    使用 RobustScaler 替代 StandardScaler 的原因:
-    - Age 和 Spending 类特征存in长尾分布 / 离群点
-    - RobustScaler 用中位数和 IQR 缩放, 对离群点不敏感
-    - in金融/消费类特征上一般比 StandardScaler 稳健
+    Why use RobustScaler instead of StandardScaler?
+    - Age and Spending features typically have long-tailed/outlier distributions
+    - RobustScaler uses median/IQR scaling, less sensitive to outliers
+    - Generally better for financial/spending features than StandardScaler
     """
     X, y, X_test, cat_cols = get_unified_processed_data()
     X_linear = pd.get_dummies(X, columns=cat_cols)
@@ -248,10 +284,10 @@ if __name__ == "__main__":
     print(f"Categorical features:   {len(cat_cols)} ")
     print(f"Numeric features:   {X.shape[1] - len(cat_cols)} ")
 
-    # print(f"\nDeck x HomePlanet 交叉表 (validation规则生效):")
+    # print(f"\nDeck x HomePlanet crosstab (domain rule validation):")
     print(pd.crosstab(X['HomePlanet'], X['Deck']))
 
-    # print(f"\nVIP x HomePlanet (validation VIP→Europa 规则):")
+    # print(f"\nVIP x HomePlanet (VIP→Europa rule validation):")
     print(pd.crosstab(X['VIP'], X['HomePlanet']))
 
     print(f"\nLabel distribution:")
@@ -266,9 +302,9 @@ if __name__ == "__main__":
         print(miss)
 
     X_lin, _, X_test_lin, fn = get_linear_model_data()
-    # print(f"\nlinear模型数据 (one-hot 展开后): X={X_lin.shape}, X_test={X_test_lin.shape}")
-    # print(f"Features after expansion: {len(fn)} (V66 约 ~120, after removing combined categories should reduce ~30)")
+    # print(f"\nLinear model data (after one-hot): X={X_lin.shape}, X_test={X_test_lin.shape}")
+    # print(f"Features after expansion: {len(fn)} (V66 has ~120, after removing combined categories should reduce ~30)")
 
     print("\n" + "=" * 70)
-    # print("v7.0 Done - 38 特征, 全部 train-only fit, no longer depends on Family/collinear derived")
+    # print("v7.0 Done - 38 features, train-only fit, no longer relies on Family/collinear derived")
     print("=" * 70)
