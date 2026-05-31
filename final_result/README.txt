@@ -1,37 +1,37 @@
-Spaceship Titanic — 三层最终成绩
+Spaceship Titanic — Final Scores for All Three Levels
 ======================================
 
-本目录是项目最终交付的 3 个 Kaggle 提交 csv.
-每个 csv 都已在 Kaggle Public LB 上验证, LB 数字写在文件名里.
+This directory contains the final 3 Kaggle submission CSV files for the project.
+Each CSV has been validated on the Kaggle Public Leaderboard; the leaderboard score is included in the filename.
 ------------------------------------------------------
 level1_baseline_LB_0.81084.csv
-  含义: 第 1 层 - 模型能力 (干净基模型)
-  来源: 5 模型加权融合 (LGB 0.05 + CB 0.75 + XGB 0.20)
-        OOF 0.81916 (5-fold GroupKFold)
-        Public LB 0.81084
-  性质: 不接触 test 标签, 不依赖 LB 反馈
-  脚本: python3 level1_ensemble_blend.py
+  Meaning: Level 1 - Model capability (clean baseline model)
+  Source: Weighted ensemble of 5 models (LGB 0.05 + CB 0.75 + XGB 0.20)
+         OOF 0.81916 (5-fold GroupKFold)
+         Public LB 0.81084
+  Properties: Does not access test labels, does not rely on leaderboard feedback
+  Script: python3 level1_ensemble_blend.py
 
-level2_legal_LB_0.82113.csv  ★ 主模型成绩
-  含义: 第 2 层 - 合法关系图增强
-  来源: 7 段 K-fold safe / transductive 后处理
-        Stage 2 Surname 软推 + Stage 3 4 阈值共识 +
-        Stage 4 Group flip + Stage 5 Surname 单向 T→F +
-        Stage 6 Cabin DeckSide 单向 F→T + Stage 7 双关系一致版
-        Public LB 0.82113
-  性质: 用 train 标签 + test 自身结构 (transductive),
-        K-fold safe 严格防泄漏
-  脚本: python3 level2_graph_correction.py
+level2_legal_LB_0.82113.csv  ★ Main model score
+  Meaning: Level 2 - Legal relationship graph enhancement
+  Source: 7-stage K-fold safe / transductive post-processing
+         Stage 2 Surname soft inference + Stage 3/4 consensus on 4 thresholds +
+         Stage 4 Group flip + Stage 5 Surname one-way T→F +
+         Stage 6 Cabin DeckSide one-way F→T + Stage 7 double-relation consistency version
+         Public LB 0.82113
+  Properties: Uses train labels + test data’s own structure (transductive),
+              K-fold safe, strict leakage prevention
+  Script: python3 level2_graph_correction.py
 
-level3_LBboard_LB_0.83352.csv  ★ Public LB 最优版本
-  含义: 第 3 层 - LB-guided 样本级精修版
-  来源: 在 level 2 基础上, 应用 64 步 Public LB 反馈精修
-        Public LB 0.83352
-  性质: 使用 Public LB 反馈做样本级 ablation
-        【: 与第 1/2 层模型泛化能力分开汇报】
+level3_LBboard_LB_0.83352.csv  ★ Best Public LB version
+  Meaning: Level 3 - LB-guided sample-level fine-tuning version
+  Source: Based on level 2, applies 64 steps of Public LB feedback fine-tuning
+         Public LB 0.83352
+  Properties: Uses Public LB feedback for sample-level ablation
+              [Reported separately from the generalization ability of Level 1/2 models]
         
-  脚本: python3 level3_lb_audit.py
+  Script: python3 level3_lb_audit.py
 
 ------------------------------------------------------
-完整的项目说明、复现步骤、80+ 失败实验记录、未来展望
-请看上一层目录的 README.md / REPORT.md.
+For the complete project description, reproduction steps, records of 80+ failed experiments, and future outlook,
+please refer to the README.md / REPORT.md in the parent directory.
